@@ -1,0 +1,33 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (.NET 8)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+          cache: true
+          cache-dependency-path: src/OverlayMonitor/OverlayMonitor.csproj
+
+      - name: Restore
+        run: dotnet restore OverlayMonitor.sln
+
+      - name: Build
+        run: dotnet build OverlayMonitor.sln -c Release --no-restore
