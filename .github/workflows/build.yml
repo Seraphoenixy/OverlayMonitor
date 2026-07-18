@@ -48,7 +48,7 @@ jobs:
         run: Compress-Archive -Path "publish/${{ matrix.rid }}/*" -DestinationPath "OverlayMonitor-${{ matrix.rid }}.zip"
 
       - name: Upload package artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: OverlayMonitor-${{ matrix.rid }}
           path: OverlayMonitor-${{ matrix.rid }}.zip
@@ -64,7 +64,7 @@ jobs:
 
     steps:
       - name: Download release packages
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           pattern: OverlayMonitor-*
           path: release-assets
