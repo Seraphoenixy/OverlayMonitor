@@ -32,7 +32,7 @@ jobs:
           cache-dependency-path: src/OverlayMonitor/OverlayMonitor.csproj
 
       - name: Restore
-        run: dotnet restore OverlayMonitor.sln
+        run: dotnet restore OverlayMonitor.sln -r ${{ matrix.rid }}
 
       - name: Publish self-contained package
         run: >
