@@ -1,8 +1,9 @@
-name: Build
+name: Build and Release
 
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -12,8 +13,12 @@ permissions:
 
 jobs:
   build:
-    name: Build (.NET 8)
+    name: Publish (${{ matrix.rid }})
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: [win-x64, win-arm64]
 
     steps:
       - name: Checkout
@@ -29,5 +34,44 @@ jobs:
       - name: Restore
         run: dotnet restore OverlayMonitor.sln
 
-      - name: Build
-        run: dotnet build OverlayMonitor.sln -c Release --no-restore
+      - name: Publish self-contained package
+        run: >
+          dotnet publish src/OverlayMonitor/OverlayMonitor.csproj
+          -c Release
+          -r ${{ matrix.rid }}
+          --self-contained true
+          --no-restore
+          -o publish/${{ matrix.rid }}
+
+      - name: Create ZIP archive
+        shell: pwsh
+        run: Compress-Archive -Path "publish/${{ matrix.rid }}/*" -DestinationPath "OverlayMonitor-${{ matrix.rid }}.zip"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OverlayMonitor-${{ matrix.rid }}
+          path: OverlayMonitor-${{ matrix.rid }}.zip
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release packages
+        uses: actions/download-artifact@v5
+        with:
+          pattern: OverlayMonitor-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create release and upload packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: gh release create "$TAG_NAME" release-assets/*.zip --title "OverlayMonitor $TAG_NAME" --generate-notes --draft
