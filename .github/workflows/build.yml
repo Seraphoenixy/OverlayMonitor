@@ -63,6 +63,11 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
       - name: Download release packages
         uses: actions/download-artifact@v6
         with:
