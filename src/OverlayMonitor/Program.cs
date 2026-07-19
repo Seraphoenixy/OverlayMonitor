@@ -16,6 +16,7 @@ internal static class Program
     private static void Run()
     {
         var configService = new ConfigService(); var config = configService.Load();
+        PawnIoBootstrapper.EnsureInstalled();
         using var window = new OverlayWindow(configService, config); window.Create();
         using var monitor = new SystemMonitor(); using var cancel = new CancellationTokenSource();
         var gate = new object(); MonitorSnapshot? latest = null;

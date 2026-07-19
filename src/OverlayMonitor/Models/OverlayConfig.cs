@@ -1,11 +1,14 @@
 namespace OverlayMonitor.Models;
 
+public enum OverlayTheme : byte { AdaptiveOutline, OriginalWhite }
+
 public sealed class OverlayConfig
 {
     public int X { get; set; } = 815;
     public int Y { get; set; } = 3;
     public bool Visible { get; set; } = true;
     public bool ShowMemoryLoad { get; set; } = true;
+    public OverlayTheme Theme { get; set; } = OverlayTheme.AdaptiveOutline;
     public int SampleIntervalMs { get; set; } = 1000;
     public List<MetricConfig> Metrics { get; set; } =
     [

@@ -13,7 +13,9 @@ public sealed class ConfigService
             Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
             if (!File.Exists(_path)) { var created = new OverlayConfig(); Save(created); return created; }
             var config = JsonSerializer.Deserialize<OverlayConfig>(File.ReadAllText(_path), Options) ?? new OverlayConfig();
-            if (MigrateOriginalDefaultOrder(config)) Save(config);
+            var changed = MigrateOriginalDefaultOrder(config);
+            changed |= NormalizeTheme(config);
+            if (changed) Save(config);
             return config;
         }
         catch (Exception ex) { AppLog.Error("读取配置文件失败，已使用内置默认配置。", ex); return new OverlayConfig(); }
@@ -29,6 +31,12 @@ public sealed class ConfigService
         if (config.Metrics.Count != original.Length || config.Metrics.OrderBy(m => m.Order).Select(m => m.Id).SequenceEqual(original) is false) return false;
         var revised = new[] { "download", "upload", "cpuTemp", "gpuTemp", "cpuLoad", "gpuLoad" };
         for (var i = 0; i < revised.Length; i++) config.Metrics.Single(m => m.Id == revised[i]).Order = i;
+        return true;
+    }
+    private static bool NormalizeTheme(OverlayConfig config)
+    {
+        if (Enum.IsDefined(config.Theme)) return false;
+        config.Theme = OverlayTheme.AdaptiveOutline;
         return true;
     }
 }

@@ -8,7 +8,7 @@ public sealed class SystemMonitor : IDisposable
 {
     private readonly Computer _computer = new() { IsCpuEnabled = true, IsGpuEnabled = true };
     private readonly UpdateVisitor _visitor = new();
-    private ISensor? _cpuTemp, _gpuTemp, _gpuLoad;
+    private ISensor? _cpuTemp, _cpuLoad, _gpuTemp, _gpuLoad;
     private ulong _prevIdle, _prevKernel, _prevUser, _prevRx, _prevTx;
     private uint _lastMemoryLoad;
     private DateTime _previous = DateTime.UtcNow;
@@ -24,11 +24,14 @@ public sealed class SystemMonitor : IDisposable
         var cpuSensors = sensors.Where(s => s.Hardware.HardwareType == HardwareType.Cpu).ToList();
         var gpuSensors = sensors.Where(s => s.Hardware.HardwareType is HardwareType.GpuAmd or HardwareType.GpuNvidia or HardwareType.GpuIntel).ToList();
         _cpuTemp = Pick(cpuSensors, SensorType.Temperature, ["CPU Package", "Core Average", "Tctl/Tdie", "CPU Die", "Core Max"]);
+        _cpuLoad = Pick(cpuSensors, SensorType.Load, ["CPU Total", "Total"]);
         _gpuTemp = Pick(gpuSensors, SensorType.Temperature, ["GPU Core", "GPU Temperature", "Core"]);
         _gpuLoad = Pick(gpuSensors, SensorType.Load, ["GPU Core", "Core", "D3D 3D"]);
         LogSensors("CPU 温度传感器", cpuSensors.Where(s => s.SensorType == SensorType.Temperature));
+        LogSensors("CPU 负载传感器", cpuSensors.Where(s => s.SensorType == SensorType.Load));
         LogSensors("GPU 温度传感器", gpuSensors.Where(s => s.SensorType == SensorType.Temperature));
         AppLog.Info($"已选择 CPU 温度传感器：{Describe(_cpuTemp)}");
+        AppLog.Info($"已选择 CPU 负载传感器：{Describe(_cpuLoad)}");
         AppLog.Info($"已选择 GPU 温度传感器：{Describe(_gpuTemp)}");
     }
     private static IEnumerable<IHardware> Flatten(IHardware h) { yield return h; foreach (var s in h.SubHardware) foreach (var item in Flatten(s)) yield return item; }
@@ -49,9 +52,11 @@ public sealed class SystemMonitor : IDisposable
         try { ReadNetwork(out rx, out tx); } catch (Exception ex) { AppLog.Error("采样网络速度失败。", ex); }
         var down = Delta(rx, _prevRx) / seconds; var up = Delta(tx, _prevTx) / seconds; (_prevRx, _prevTx) = (rx, tx);
         try { _lastMemoryLoad = GetMemoryLoad(); } catch (Exception ex) { AppLog.Error("采样内存占用率失败。", ex); }
-        return new(ValidTemp(_cpuTemp?.Value), ValidTemp(_gpuTemp?.Value), Math.Clamp(cpu, 0, 100), _gpuLoad?.Value, _lastMemoryLoad, down, up);
+        var cpuLoad = ValidLoad(_cpuLoad?.Value) ?? Math.Clamp(cpu, 0, 100);
+        return new(ValidTemp(_cpuTemp?.Value), ValidTemp(_gpuTemp?.Value), cpuLoad, _gpuLoad?.Value, _lastMemoryLoad, down, up);
     }
     private static float? ValidTemp(float? value) => value is > 0 and < 150 ? value : null;
+    private static float? ValidLoad(float? value) => value is >= 0 and <= 100 ? value : null;
     private static ulong Delta(ulong current, ulong previous) => current >= previous ? current - previous : 0;
     private static void ReadNetwork(out ulong rx, out ulong tx) { rx = tx = 0; foreach (var n in NetworkInterface.GetAllNetworkInterfaces().Where(n => n.OperationalStatus == OperationalStatus.Up && n.NetworkInterfaceType != NetworkInterfaceType.Loopback)) { var s = n.GetIPv4Statistics(); rx += (ulong)s.BytesReceived; tx += (ulong)s.BytesSent; } }
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, CharSet = System.Runtime.InteropServices.CharSet.Auto)] private struct MEMORYSTATUSEX { public uint dwLength, dwMemoryLoad; public ulong ullTotalPhys, ullAvailPhys, ullTotalPageFile, ullAvailPageFile, ullTotalVirtual, ullAvailVirtual, ullAvailExtendedVirtual; }

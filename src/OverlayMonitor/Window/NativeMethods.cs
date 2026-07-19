@@ -7,6 +7,8 @@ internal static class NativeMethods
     internal const int GWL_EXSTYLE = -20, SW_SHOWNOACTIVATE = 4, SW_HIDE = 0, HWND_TOPMOST = -1, SWP_NOMOVE = 2, SWP_NOSIZE = 1, SWP_NOACTIVATE = 16, SWP_SHOWWINDOW = 64;
     internal const uint WM_NULL = 0, WM_DESTROY = 2, WM_CLOSE = 16, WM_NCHITTEST = 132, WM_LBUTTONDOWN = 513, WM_MOUSEMOVE = 512, WM_LBUTTONUP = 514, WM_CAPTURECHANGED = 533, WM_HOTKEY = 786, WM_APP = 0x8000, WM_OVERLAY_CHANGED = WM_APP + 1, WM_TRAY = WM_APP + 2;
     internal const nint HTTRANSPARENT = -1, HTCLIENT = 1;
+    internal const uint MB_YESNO = 0x00000004, MB_ICONINFORMATION = 0x00000040;
+    internal const int IDYES = 6;
     [StructLayout(LayoutKind.Sequential)] internal struct POINT { public int x, y; }
     [StructLayout(LayoutKind.Sequential)] internal struct SIZE { public int cx, cy; }
     [StructLayout(LayoutKind.Sequential)] internal struct MSG { public nint hwnd; public uint message; public nuint wParam; public nint lParam; public uint time; public POINT pt; }
@@ -53,4 +55,5 @@ internal static class NativeMethods
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] internal static extern nint LoadImage(nint instance, string name, uint type, int desiredWidth, int desiredHeight, uint loadFlags);
     [DllImport("user32.dll", SetLastError = true)] internal static extern bool DestroyIcon(nint hIcon);
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] internal static extern uint RegisterWindowMessage(string message);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern int MessageBox(nint hWnd, string text, string caption, uint type);
 }

@@ -19,7 +19,7 @@ public sealed class OverlayWindow : IDisposable
         _hwnd = NativeMethods.CreateWindowEx(Style(), ClassName, "OverlayMonitor", NativeMethods.WS_POPUP, _config.X, _config.Y, 510, 42, 0, 0, instance, 0); if (_hwnd == 0) throw new Win32Exception(Marshal.GetLastWin32Error()); _tray = new TrayIcon(_hwnd); _tray.Command += OnCommand; _tray.StateProvider = GetTrayState; _hotKeyRegistered = NativeMethods.RegisterHotKey(_hwnd, ToggleHotKeyId, 1, 0x45); if (!_hotKeyRegistered) AppLog.Error("Alt+E 全局热键注册失败。", new Win32Exception(Marshal.GetLastWin32Error())); if (_config.Visible) NativeMethods.ShowWindow(_hwnd, NativeMethods.SW_SHOWNOACTIVATE);
     }
     private uint Style() => NativeMethods.WS_EX_TOPMOST | NativeMethods.WS_EX_TOOLWINDOW | NativeMethods.WS_EX_NOACTIVATE | NativeMethods.WS_EX_LAYERED | (!_moving ? NativeMethods.WS_EX_TRANSPARENT : 0);
-    public void Render(string text, bool force = false) { if (!force && text == _text) return; _text = text; var right = _config.X + _renderWidth; _config.X = _renderer.Draw(_hwnd, text, right, _config.Y, _moving, out _renderWidth); }
+    public void Render(string text, bool force = false) { if (!force && text == _text) return; _text = text; var right = _config.X + _renderWidth; _config.X = _renderer.Draw(_hwnd, text, right, _config.Y, _moving, _config.Theme, out _renderWidth); }
     private nint WndProc(nint h, uint msg, nuint wp, nint lp)
     {
         if (msg == _taskbarCreatedMessage) { try { _tray?.Restore(); } catch (Exception ex) { AppLog.Error("恢复托盘图标失败。", ex); } return 0; }
@@ -34,11 +34,11 @@ public sealed class OverlayWindow : IDisposable
         if (msg == NativeMethods.WM_DESTROY) { if (_hotKeyRegistered) { NativeMethods.UnregisterHotKey(h, ToggleHotKeyId); _hotKeyRegistered = false; } NativeMethods.PostQuitMessage(0); return 0; }
         return NativeMethods.DefWindowProc(h, msg, wp, lp);
     }
-    private void OnCommand(uint id) { switch (id) { case 1: ToggleVisibility(); return; case 2: _moving = !_moving; ApplyStyle(); if (_text.Length > 0) Render(_text, true); break; case 3: SetMetrics("cpuTemp,gpuTemp,download,upload", true); break; case 4: SetMetrics("cpuTemp,gpuTemp,cpuLoad,gpuLoad,download,upload", true); break; case 5: SetMetrics("cpuTemp,gpuTemp", false); break; case 6: ToggleAutoStart(); return; case 7: _config = _configService.Load(); ApplyStyle(); break; case 8: NativeMethods.PostMessage(_hwnd, NativeMethods.WM_CLOSE, 0, 0); break; } _configService.Save(_config); }
+    private void OnCommand(uint id) { switch (id) { case 1: ToggleVisibility(); return; case 2: _moving = !_moving; ApplyStyle(); if (_text.Length > 0) Render(_text, true); break; case 3: SetMetrics("cpuTemp,gpuTemp,download,upload", true); break; case 4: SetMetrics("cpuTemp,gpuTemp,cpuLoad,gpuLoad,download,upload", true); break; case 5: SetMetrics("cpuTemp,gpuTemp", false); break; case 6: ToggleAutoStart(); return; case 7: _config = _configService.Load(); ApplyStyle(); if (_text.Length > 0) Render(_text, true); break; case 8: NativeMethods.PostMessage(_hwnd, NativeMethods.WM_CLOSE, 0, 0); return; case 9: _config.Theme = OverlayTheme.AdaptiveOutline; break; case 10: _config.Theme = OverlayTheme.OriginalWhite; break; } if (_text.Length > 0) Render(_text, true); _configService.Save(_config); }
     private void ToggleVisibility() { _config.Visible = !_config.Visible; NativeMethods.ShowWindow(_hwnd, _config.Visible ? NativeMethods.SW_SHOWNOACTIVATE : NativeMethods.SW_HIDE); _configService.Save(_config); }
     private void SetMetrics(string ids, bool showMemoryLoad) { var enabled = ids.Split(','); foreach (var m in _config.Metrics) m.Enabled = enabled.Contains(m.Id); _config.ShowMemoryLoad = showMemoryLoad; }
     private void ToggleAutoStart() { try { _startupService.SetEnabled(!_startupService.IsEnabled()); } catch (Exception ex) { AppLog.Error("更新开机自启动设置失败。", ex); } }
-    private TrayMenuState GetTrayState() { var autoStart = false; try { autoStart = _startupService.IsEnabled(); } catch (Exception ex) { AppLog.Error("读取开机自启动设置失败。", ex); } return new(_config.Visible, _moving, autoStart, GetProfile()); }
+    private TrayMenuState GetTrayState() { var autoStart = false; try { autoStart = _startupService.IsEnabled(); } catch (Exception ex) { AppLog.Error("读取开机自启动设置失败。", ex); } return new(_config.Visible, _moving, autoStart, GetProfile(), _config.Theme); }
     private OverlayProfile GetProfile()
     {
         var enabled = _config.Metrics.Where(m => m.Enabled).Select(m => m.Id).OrderBy(id => id).ToArray();
