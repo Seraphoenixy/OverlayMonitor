@@ -6,11 +6,13 @@ internal static class NativeMethods
     internal const uint WS_POPUP = 0x80000000, WS_EX_TOPMOST = 0x00000008, WS_EX_TOOLWINDOW = 0x00000080, WS_EX_NOACTIVATE = 0x08000000, WS_EX_LAYERED = 0x00080000, WS_EX_TRANSPARENT = 0x00000020;
     internal const int GWL_EXSTYLE = -20, SW_SHOWNOACTIVATE = 4, SW_HIDE = 0, HWND_TOPMOST = -1, SWP_NOMOVE = 2, SWP_NOSIZE = 1, SWP_NOACTIVATE = 16, SWP_SHOWWINDOW = 64;
     internal const uint WM_NULL = 0, WM_DESTROY = 2, WM_CLOSE = 16, WM_NCHITTEST = 132, WM_LBUTTONDOWN = 513, WM_MOUSEMOVE = 512, WM_LBUTTONUP = 514, WM_CAPTURECHANGED = 533, WM_HOTKEY = 786, WM_APP = 0x8000, WM_OVERLAY_CHANGED = WM_APP + 1, WM_TRAY = WM_APP + 2;
-    internal const nint HTTRANSPARENT = -1, HTCLIENT = 1;
+    internal const nint HTTRANSPARENT = -1, HTCLIENT = 1, MONITOR_DEFAULTTONEAREST = 2;
     internal const uint MB_YESNO = 0x00000004, MB_ICONINFORMATION = 0x00000040;
     internal const int IDYES = 6;
     [StructLayout(LayoutKind.Sequential)] internal struct POINT { public int x, y; }
     [StructLayout(LayoutKind.Sequential)] internal struct SIZE { public int cx, cy; }
+    [StructLayout(LayoutKind.Sequential)] internal struct RECT { public int left, top, right, bottom; }
+    [StructLayout(LayoutKind.Sequential)] internal struct MONITORINFO { public uint cbSize; public RECT rcMonitor, rcWork; public uint dwFlags; }
     [StructLayout(LayoutKind.Sequential)] internal struct MSG { public nint hwnd; public uint message; public nuint wParam; public nint lParam; public uint time; public POINT pt; }
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] internal struct WNDCLASSEX { public uint cbSize, style; public nint lpfnWndProc; public int cbClsExtra, cbWndExtra; public nint hInstance, hIcon, hCursor, hbrBackground; public string? lpszMenuName, lpszClassName; public nint hIconSm; }
     [StructLayout(LayoutKind.Sequential)] internal struct BLENDFUNCTION { public byte BlendOp, BlendFlags, SourceConstantAlpha, AlphaFormat; }
@@ -37,6 +39,8 @@ internal static class NativeMethods
     [DllImport("user32.dll")] internal static extern nint SetCapture(nint hWnd);
     [DllImport("user32.dll")] internal static extern nint DefWindowProc(nint h, uint m, nuint w, nint l);
     [DllImport("user32.dll", SetLastError = true)] internal static extern bool UpdateLayeredWindow(nint h, nint dst, ref POINT pt, ref SIZE size, nint src, ref POINT srcPt, uint key, ref BLENDFUNCTION blend, uint flags);
+    [DllImport("user32.dll")] internal static extern nint MonitorFromWindow(nint hWnd, nint flags);
+    [DllImport("user32.dll", SetLastError = true)] internal static extern bool GetMonitorInfo(nint hMonitor, ref MONITORINFO lpmi);
     [DllImport("user32.dll", SetLastError = true)] internal static extern nint CreatePopupMenu();
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)] internal static extern bool AppendMenu(nint menu, uint flags, nuint id, string text);
     [DllImport("user32.dll", SetLastError = true)] internal static extern uint TrackPopupMenu(nint menu, uint flags, int x, int y, int r, nint h, nint rect);

@@ -27,7 +27,7 @@ public sealed class OverlayWindow : IDisposable
         if (msg == NativeMethods.WM_HOTKEY && (int)wp == ToggleHotKeyId) { ToggleVisibility(); return 0; }
         if (msg == NativeMethods.WM_LBUTTONDOWN && _moving) { NativeMethods.GetCursorPos(out _dragStart); _windowX = _config.X; _windowY = _config.Y; NativeMethods.SetCapture(h); _dragging = true; return 0; }
         if (msg == NativeMethods.WM_MOUSEMOVE && _dragging) { NativeMethods.GetCursorPos(out var now); _config.X = _windowX + now.x - _dragStart.x; _config.Y = _windowY + now.y - _dragStart.y; NativeMethods.SetWindowPos(h, NativeMethods.HWND_TOPMOST, _config.X, _config.Y, 0, 0, NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE); return 0; }
-        if (msg == NativeMethods.WM_LBUTTONUP && _dragging) { _dragging = false; NativeMethods.ReleaseCapture(); _configService.Save(_config); return 0; }
+        if (msg == NativeMethods.WM_LBUTTONUP && _dragging) { _dragging = false; NativeMethods.ReleaseCapture(); _configService.Save(_config); if (_text.Length > 0) Render(_text, true); return 0; }
         if (msg == NativeMethods.WM_CAPTURECHANGED && _dragging) { _dragging = false; _configService.Save(_config); return 0; }
         if (msg == NativeMethods.WM_TRAY) { _tray?.Handle(lp); return 0; }
         if (msg == NativeMethods.WM_CLOSE) { NativeMethods.DestroyWindow(h); return 0; }

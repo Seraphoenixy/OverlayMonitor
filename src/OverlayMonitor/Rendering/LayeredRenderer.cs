@@ -8,13 +8,23 @@ public sealed class LayeredRenderer : IDisposable
 {
     public int Draw(nint hwnd, string text, int rightEdge, int top, bool movingMode, OverlayTheme theme, out int renderedWidth)
     {
-        var height = movingMode ? 74 : 42;
-        const int padding = 12, minimumWidth = 510;
+        // 2560 × 1600 is the visual baseline.  Scale by monitor height so the
+        // overlay stays legible on smaller panels without becoming oversized on 4K.
+        var scale = GetMonitorScale(hwnd);
+        var height = Scale(movingMode ? 74 : 42, scale);
+        var padding = Scale(12, scale);
+        var minimumWidth = Scale(510, scale);
+        var textY = Scale(10, scale);
+        var outlineSize = Math.Max(1, Scale(1, scale));
+        var fontHeight = Scale(22, scale);
+        // Preserve the current 2560 × 1600 appearance.  A slightly stronger
+        // weight keeps the smaller rasterized text clear at compact resolutions.
+        var fontWeight = scale < 0.9f ? 500 : 400;
         var dc = NativeMethods.CreateCompatibleDC(0);
         if (dc == 0) throw new Win32Exception();
         try
         {
-            var font = NativeMethods.CreateFont(22, 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
+            var font = NativeMethods.CreateFont(fontHeight, 0, 0, 0, fontWeight, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
             if (font == 0) throw new Win32Exception();
             var previousFont = NativeMethods.SelectObject(dc, font);
             try
@@ -40,11 +50,11 @@ public sealed class LayeredRenderer : IDisposable
                             switch (theme)
                             {
                                 case OverlayTheme.OriginalWhite:
-                                    DrawTextLayer(dc, raw, canvas, textX, 10, text, 255, 255, 255, 255);
+                                    DrawTextLayer(dc, raw, canvas, textX, textY, text, 255, 255, 255, 255);
                                     break;
                                 default:
-                                    DrawOutline(dc, raw, canvas, textX, 10, text, 20, 20, 20, 190);
-                                    DrawTextLayer(dc, raw, canvas, textX, 10, text, 255, 255, 255, 255);
+                                    DrawOutline(dc, raw, canvas, textX, textY, text, 20, 20, 20, 190, outlineSize);
+                                    DrawTextLayer(dc, raw, canvas, textX, textY, text, 255, 255, 255, 255);
                                     break;
                             }
                             canvas.AsSpan().CopyTo(raw);
@@ -65,11 +75,23 @@ public sealed class LayeredRenderer : IDisposable
         finally { NativeMethods.DeleteDC(dc); }
     }
 
-    private static unsafe void DrawOutline(nint dc, Span<uint> raw, uint[] canvas, int x, int y, string text, byte r, byte g, byte b, byte opacity)
+    private static unsafe void DrawOutline(nint dc, Span<uint> raw, uint[] canvas, int x, int y, string text, byte r, byte g, byte b, byte opacity, int size)
     {
-        foreach (var (dx, dy) in new (int, int)[] { (-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1) })
+        foreach (var (dx, dy) in new (int, int)[] { (-size, -size), (0, -size), (size, -size), (-size, 0), (size, 0), (-size, size), (0, size), (size, size) })
             DrawTextLayer(dc, raw, canvas, x + dx, y + dy, text, r, g, b, opacity);
     }
+
+    private static float GetMonitorScale(nint hwnd)
+    {
+        var monitor = NativeMethods.MonitorFromWindow(hwnd, NativeMethods.MONITOR_DEFAULTTONEAREST);
+        if (monitor == 0) return 1f;
+        var info = new NativeMethods.MONITORINFO { cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.MONITORINFO>() };
+        return NativeMethods.GetMonitorInfo(monitor, ref info)
+            ? Math.Clamp((info.rcMonitor.bottom - info.rcMonitor.top) / 1600f, 0.75f, 1.5f)
+            : 1f;
+    }
+
+    private static int Scale(int value, float scale) => Math.Max(1, (int)MathF.Round(value * scale));
 
     private static unsafe void DrawTextLayer(nint dc, Span<uint> raw, uint[] canvas, int x, int y, string text, byte r, byte g, byte b, byte opacity)
     {
