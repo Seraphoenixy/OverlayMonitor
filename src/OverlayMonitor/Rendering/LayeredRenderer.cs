@@ -7,8 +7,9 @@ namespace OverlayMonitor.Rendering;
 public sealed class LayeredRenderer : IDisposable
 {
     private readonly nint _dc;
-    private readonly nint _font;
-    private readonly nint _previousFont;
+    private nint _font;
+    private nint _previousFont;
+    private int _fontHeight, _fontWeight;
     private nint _bitmap;
     private nint _previousBitmap;
     private nint _bits;
@@ -19,15 +20,24 @@ public sealed class LayeredRenderer : IDisposable
     {
         _dc = NativeMethods.CreateCompatibleDC(0);
         if (_dc == 0) throw new Win32Exception();
-        _font = NativeMethods.CreateFont(22, 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
-        if (_font == 0) { NativeMethods.DeleteDC(_dc); throw new Win32Exception(); }
-        _previousFont = NativeMethods.SelectObject(_dc, _font);
+        EnsureFont(22, 400);
     }
 
     public int Draw(nint hwnd, string text, int rightEdge, int top, bool movingMode, OverlayTheme theme, out int renderedWidth)
     {
-        var height = movingMode ? 74 : 42;
-        const int padding = 12, minimumWidth = 510;
+        // 2560 × 1600 is the visual baseline.  Scale by monitor height so the
+        // overlay stays legible on smaller panels without becoming oversized on 4K.
+        var scale = GetMonitorScale(hwnd);
+        var height = Scale(movingMode ? 74 : 42, scale);
+        var padding = Scale(12, scale);
+        var minimumWidth = Scale(510, scale);
+        var textY = Scale(10, scale);
+        var outlineSize = Math.Max(1, Scale(1, scale));
+        var fontHeight = Scale(22, scale);
+        // Preserve the current 2560 × 1600 appearance.  A slightly stronger
+        // weight keeps the smaller rasterized text clear at compact resolutions.
+        var fontWeight = scale < 0.9f ? 500 : 400;
+        EnsureFont(fontHeight, fontWeight);
         if (!NativeMethods.GetTextExtentPoint32(_dc, text, text.Length, out var textSize)) throw new Win32Exception();
         renderedWidth = Math.Max(minimumWidth, textSize.cx + padding * 2);
         EnsureBitmap(renderedWidth, height);
@@ -41,11 +51,11 @@ public sealed class LayeredRenderer : IDisposable
             switch (theme)
             {
                 case OverlayTheme.OriginalWhite:
-                    DrawTextLayer(_dc, raw, _canvas, textX, 10, text, 255, 255, 255, 255);
+                    DrawTextLayer(_dc, raw, _canvas, textX, textY, text, 255, 255, 255, 255);
                     break;
                 default:
-                    DrawOutline(_dc, raw, _canvas, textX, 10, text, 20, 20, 20, 190);
-                    DrawTextLayer(_dc, raw, _canvas, textX, 10, text, 255, 255, 255, 255);
+                    DrawOutline(_dc, raw, _canvas, textX, textY, text, 20, 20, 20, 190, outlineSize);
+                    DrawTextLayer(_dc, raw, _canvas, textX, textY, text, 255, 255, 255, 255);
                     break;
             }
             _canvas.AsSpan().CopyTo(raw);
@@ -56,6 +66,18 @@ public sealed class LayeredRenderer : IDisposable
         var blend = new NativeMethods.BLENDFUNCTION { BlendOp = 0, SourceConstantAlpha = 255, AlphaFormat = 1 };
         if (!NativeMethods.UpdateLayeredWindow(hwnd, 0, ref destination, ref size, _dc, ref source, 0, ref blend, NativeMethods.ULW_ALPHA)) throw new Win32Exception();
         return left;
+    }
+
+    private void EnsureFont(int height, int weight)
+    {
+        if (_font != 0 && _fontHeight == height && _fontWeight == weight) return;
+        var font = NativeMethods.CreateFont(height, 0, 0, 0, weight, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
+        if (font == 0) throw new Win32Exception();
+        if (_font != 0) { NativeMethods.SelectObject(_dc, _previousFont); NativeMethods.DeleteObject(_font); }
+        _previousFont = NativeMethods.SelectObject(_dc, font);
+        _font = font;
+        _fontHeight = height;
+        _fontWeight = weight;
     }
 
     private void EnsureBitmap(int width, int height)
@@ -71,11 +93,23 @@ public sealed class LayeredRenderer : IDisposable
         _canvas = new uint[width * height];
     }
 
-    private static unsafe void DrawOutline(nint dc, Span<uint> raw, uint[] canvas, int x, int y, string text, byte r, byte g, byte b, byte opacity)
+    private static unsafe void DrawOutline(nint dc, Span<uint> raw, uint[] canvas, int x, int y, string text, byte r, byte g, byte b, byte opacity, int size)
     {
-        foreach (var (dx, dy) in new (int, int)[] { (-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1) })
+        foreach (var (dx, dy) in new (int, int)[] { (-size, -size), (0, -size), (size, -size), (-size, 0), (size, 0), (-size, size), (0, size), (size, size) })
             DrawTextLayer(dc, raw, canvas, x + dx, y + dy, text, r, g, b, opacity);
     }
+
+    private static float GetMonitorScale(nint hwnd)
+    {
+        var monitor = NativeMethods.MonitorFromWindow(hwnd, NativeMethods.MONITOR_DEFAULTTONEAREST);
+        if (monitor == 0) return 1f;
+        var info = new NativeMethods.MONITORINFO { cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.MONITORINFO>() };
+        return NativeMethods.GetMonitorInfo(monitor, ref info)
+            ? Math.Clamp((info.rcMonitor.bottom - info.rcMonitor.top) / 1600f, 0.75f, 1.5f)
+            : 1f;
+    }
+
+    private static int Scale(int value, float scale) => Math.Max(1, (int)MathF.Round(value * scale));
 
     private static unsafe void DrawTextLayer(nint dc, Span<uint> raw, uint[] canvas, int x, int y, string text, byte r, byte g, byte b, byte opacity)
     {

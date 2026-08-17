@@ -110,6 +110,7 @@ public sealed class OverlayWindow : IDisposable
             _dragging = false;
             NativeMethods.ReleaseCapture();
             _configService.Save(_config);
+            if (_text.Length > 0) Render(_text, true);
             return 0;
         }
         if (msg == NativeMethods.WM_CAPTURECHANGED && _dragging)

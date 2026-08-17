@@ -49,6 +49,7 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)] internal static extern bool GetMonitorInfo(nint monitor, ref MONITORINFO info);
     [DllImport("user32.dll")] internal static extern nint DefWindowProc(nint h, uint m, nuint w, nint l);
     [DllImport("user32.dll", SetLastError = true)] internal static extern bool UpdateLayeredWindow(nint h, nint dst, ref POINT pt, ref SIZE size, nint src, ref POINT srcPt, uint key, ref BLENDFUNCTION blend, uint flags);
+    [DllImport("user32.dll")] internal static extern nint MonitorFromWindow(nint hWnd, uint flags);
     [DllImport("user32.dll", SetLastError = true)] internal static extern nint CreatePopupMenu();
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)] internal static extern bool AppendMenu(nint menu, uint flags, nuint id, string text);
     [DllImport("user32.dll", SetLastError = true)] internal static extern uint TrackPopupMenu(nint menu, uint flags, int x, int y, int r, nint h, nint rect);
