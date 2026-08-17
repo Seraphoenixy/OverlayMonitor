@@ -1,4 +1,6 @@
+using System.ComponentModel;
 using System.Net.NetworkInformation;
+using System.Runtime.InteropServices;
 using LibreHardwareMonitor.Hardware;
 using OverlayMonitor.Configuration;
 using OverlayMonitor.Models;
@@ -10,6 +12,7 @@ public sealed class SystemMonitor : IDisposable
     private readonly UpdateVisitor _visitor = new();
     private ISensor? _cpuTemp, _cpuLoad, _gpuTemp, _gpuLoad;
     private ulong _prevIdle, _prevKernel, _prevUser, _prevRx, _prevTx;
+    private List<NetworkInterface>? _interfaces;
     private uint _lastMemoryLoad;
     private DateTime _previous = DateTime.UtcNow;
     public SystemMonitor()
@@ -17,7 +20,10 @@ public sealed class SystemMonitor : IDisposable
         try { _computer.Open(); _computer.Accept(_visitor); ScanSensors(); } catch (Exception ex) { AppLog.Error("LibreHardwareMonitor 初始化失败。", ex); }
         try { ReadSystemTimes(out _prevIdle, out _prevKernel, out _prevUser); } catch (Exception ex) { AppLog.Error("读取系统时间失败。", ex); }
         try { ReadNetwork(out _prevRx, out _prevTx); } catch (Exception ex) { AppLog.Error("读取网络计数器失败。", ex); }
+        NetworkChange.NetworkAddressChanged += OnNetworkChanged;
+        NetworkChange.NetworkAvailabilityChanged += OnNetworkChanged;
     }
+    private void OnNetworkChanged(object? sender, EventArgs e) => _interfaces = null;
     private void ScanSensors()
     {
         var sensors = _computer.Hardware.SelectMany(Flatten).SelectMany(x => x.Sensors).ToList();
@@ -53,18 +59,32 @@ public sealed class SystemMonitor : IDisposable
         var down = Delta(rx, _prevRx) / seconds; var up = Delta(tx, _prevTx) / seconds; (_prevRx, _prevTx) = (rx, tx);
         try { _lastMemoryLoad = GetMemoryLoad(); } catch (Exception ex) { AppLog.Error("采样内存占用率失败。", ex); }
         var cpuLoad = ValidLoad(_cpuLoad?.Value) ?? Math.Clamp(cpu, 0, 100);
-        return new(ValidTemp(_cpuTemp?.Value), ValidTemp(_gpuTemp?.Value), cpuLoad, _gpuLoad?.Value, _lastMemoryLoad, down, up);
+        return new(ValidTemp(_cpuTemp?.Value), ValidTemp(_gpuTemp?.Value), cpuLoad, ValidLoad(_gpuLoad?.Value), _lastMemoryLoad, down, up);
     }
     private static float? ValidTemp(float? value) => value is > 0 and < 150 ? value : null;
     private static float? ValidLoad(float? value) => value is >= 0 and <= 100 ? value : null;
     private static ulong Delta(ulong current, ulong previous) => current >= previous ? current - previous : 0;
-    private static void ReadNetwork(out ulong rx, out ulong tx) { rx = tx = 0; foreach (var n in NetworkInterface.GetAllNetworkInterfaces().Where(n => n.OperationalStatus == OperationalStatus.Up && n.NetworkInterfaceType != NetworkInterfaceType.Loopback)) { var s = n.GetIPv4Statistics(); rx += (ulong)s.BytesReceived; tx += (ulong)s.BytesSent; } }
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, CharSet = System.Runtime.InteropServices.CharSet.Auto)] private struct MEMORYSTATUSEX { public uint dwLength, dwMemoryLoad; public ulong ullTotalPhys, ullAvailPhys, ullTotalPageFile, ullAvailPageFile, ullTotalVirtual, ullAvailVirtual, ullAvailExtendedVirtual; }
-    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)] private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX buffer);
-    private static uint GetMemoryLoad() { var memory = new MEMORYSTATUSEX { dwLength = (uint)System.Runtime.InteropServices.Marshal.SizeOf<MEMORYSTATUSEX>() }; if (!GlobalMemoryStatusEx(ref memory)) throw new System.ComponentModel.Win32Exception(System.Runtime.InteropServices.Marshal.GetLastWin32Error()); return memory.dwMemoryLoad; }
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)] private struct FILETIME { public uint LowDateTime, HighDateTime; }
-    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)] private static extern bool GetSystemTimes(out FILETIME idle, out FILETIME kernel, out FILETIME user);
-    private static void ReadSystemTimes(out ulong idle, out ulong kernel, out ulong user) { if (!GetSystemTimes(out var i, out var k, out var u)) throw new System.ComponentModel.Win32Exception(System.Runtime.InteropServices.Marshal.GetLastWin32Error()); idle = ((ulong)i.HighDateTime << 32) | i.LowDateTime; kernel = ((ulong)k.HighDateTime << 32) | k.LowDateTime; user = ((ulong)u.HighDateTime << 32) | u.LowDateTime; }
-    public void Dispose() { _computer.Close(); }
+    private void ReadNetwork(out ulong rx, out ulong tx)
+    {
+        rx = tx = 0;
+        _interfaces ??= NetworkInterface.GetAllNetworkInterfaces().Where(n => n.OperationalStatus == OperationalStatus.Up && n.NetworkInterfaceType != NetworkInterfaceType.Loopback).ToList();
+        foreach (var n in _interfaces)
+        {
+            try { var s = n.GetIPStatistics(); rx += (ulong)Math.Max(s.BytesReceived, 0); tx += (ulong)Math.Max(s.BytesSent, 0); }
+            catch (Exception ex) { AppLog.Error($"读取网络接口 {n.Name} 计数器失败。", ex); }
+        }
+    }
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)] private struct MEMORYSTATUSEX { public uint dwLength, dwMemoryLoad; public ulong ullTotalPhys, ullAvailPhys, ullTotalPageFile, ullAvailPageFile, ullTotalVirtual, ullAvailVirtual, ullAvailExtendedVirtual; }
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX buffer);
+    private static uint GetMemoryLoad() { var memory = new MEMORYSTATUSEX { dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>() }; if (!GlobalMemoryStatusEx(ref memory)) throw new Win32Exception(Marshal.GetLastWin32Error()); return memory.dwMemoryLoad; }
+    [StructLayout(LayoutKind.Sequential)] private struct FILETIME { public uint LowDateTime, HighDateTime; }
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool GetSystemTimes(out FILETIME idle, out FILETIME kernel, out FILETIME user);
+    private static void ReadSystemTimes(out ulong idle, out ulong kernel, out ulong user) { if (!GetSystemTimes(out var i, out var k, out var u)) throw new Win32Exception(Marshal.GetLastWin32Error()); idle = ((ulong)i.HighDateTime << 32) | i.LowDateTime; kernel = ((ulong)k.HighDateTime << 32) | k.LowDateTime; user = ((ulong)u.HighDateTime << 32) | u.LowDateTime; }
+    public void Dispose()
+    {
+        NetworkChange.NetworkAddressChanged -= OnNetworkChanged;
+        NetworkChange.NetworkAvailabilityChanged -= OnNetworkChanged;
+        _computer.Close();
+    }
     private sealed class UpdateVisitor : IVisitor { public void VisitComputer(IComputer c) => c.Traverse(this); public void VisitHardware(IHardware h) { h.Update(); foreach (var s in h.SubHardware) s.Accept(this); } public void VisitSensor(ISensor s) { } public void VisitParameter(IParameter p) { } }
 }

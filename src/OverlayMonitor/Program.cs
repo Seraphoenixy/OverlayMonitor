@@ -12,16 +12,24 @@ internal static class Program
         AppLog.Initialize();
         try { Run(); }
         catch (Exception ex) { AppLog.Error("未处理的主线程异常，程序即将退出。", ex); }
+        finally { AppLog.Shutdown(); }
     }
     private static void Run()
     {
+        using var mutex = new Mutex(true, @"Local\OverlayMonitor.SingleInstance", out var createdNew);
+        if (!createdNew) return;
         var configService = new ConfigService(); var config = configService.Load();
-        PawnIoBootstrapper.EnsureInstalled();
+        try { new StartupService().Refresh(); }
+        catch (Exception ex) { AppLog.Error("刷新开机自启动计划任务失败。", ex); }
+        var install = PawnIoBootstrapper.EnsureInstalled();
         using var window = new OverlayWindow(configService, config); window.Create();
-        using var monitor = new SystemMonitor(); using var cancel = new CancellationTokenSource();
+        if (install is not null) window.Render("正在安装 PawnIO 驱动...", true);
+        using var cancel = new CancellationTokenSource();
         var gate = new object(); MonitorSnapshot? latest = null;
         var worker = Task.Run(async () =>
         {
+            if (install is not null) await install.ConfigureAwait(false);
+            using var monitor = new SystemMonitor();
             while (!cancel.IsCancellationRequested)
             {
                 try { var sample = monitor.Sample(); lock (gate) latest = sample; if (!NativeMethods.PostMessage(window.Handle, NativeMethods.WM_OVERLAY_CHANGED, 0, 0) && !cancel.IsCancellationRequested) throw new System.ComponentModel.Win32Exception(System.Runtime.InteropServices.Marshal.GetLastWin32Error()); }
@@ -39,7 +47,7 @@ internal static class Program
         cancel.Cancel(); try { worker.GetAwaiter().GetResult(); } catch (OperationCanceledException) { }
         if (getMessage == -1) throw new System.ComponentModel.Win32Exception(System.Runtime.InteropServices.Marshal.GetLastWin32Error());
     }
-    private static string Format(OverlayConfig config, MonitorSnapshot s)
+    internal static string Format(OverlayConfig config, MonitorSnapshot s)
     {
         var parts = config.Metrics.Where(m => m.Enabled).OrderBy(m => m.Order).Select(m => m.Id switch
         {

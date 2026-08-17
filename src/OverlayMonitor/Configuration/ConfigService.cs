@@ -25,7 +25,7 @@ public sealed class ConfigService
         try { Directory.CreateDirectory(Path.GetDirectoryName(_path)!); File.WriteAllText(_path, JsonSerializer.Serialize(config, Options)); }
         catch (Exception ex) { AppLog.Error("保存配置文件失败。", ex); }
     }
-    private static bool MigrateOriginalDefaultOrder(OverlayConfig config)
+    internal static bool MigrateOriginalDefaultOrder(OverlayConfig config)
     {
         var original = new[] { "cpuTemp", "gpuTemp", "download", "upload", "cpuLoad", "gpuLoad" };
         if (config.Metrics.Count != original.Length || config.Metrics.OrderBy(m => m.Order).Select(m => m.Id).SequenceEqual(original) is false) return false;
@@ -33,7 +33,7 @@ public sealed class ConfigService
         for (var i = 0; i < revised.Length; i++) config.Metrics.Single(m => m.Id == revised[i]).Order = i;
         return true;
     }
-    private static bool NormalizeTheme(OverlayConfig config)
+    internal static bool NormalizeTheme(OverlayConfig config)
     {
         if (Enum.IsDefined(config.Theme)) return false;
         config.Theme = OverlayTheme.AdaptiveOutline;

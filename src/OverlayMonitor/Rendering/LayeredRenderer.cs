@@ -6,63 +6,69 @@ namespace OverlayMonitor.Rendering;
 
 public sealed class LayeredRenderer : IDisposable
 {
+    private readonly nint _dc;
+    private readonly nint _font;
+    private readonly nint _previousFont;
+    private nint _bitmap;
+    private nint _previousBitmap;
+    private nint _bits;
+    private int _bitmapWidth, _bitmapHeight;
+    private uint[] _canvas = [];
+
+    public LayeredRenderer()
+    {
+        _dc = NativeMethods.CreateCompatibleDC(0);
+        if (_dc == 0) throw new Win32Exception();
+        _font = NativeMethods.CreateFont(22, 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
+        if (_font == 0) { NativeMethods.DeleteDC(_dc); throw new Win32Exception(); }
+        _previousFont = NativeMethods.SelectObject(_dc, _font);
+    }
+
     public int Draw(nint hwnd, string text, int rightEdge, int top, bool movingMode, OverlayTheme theme, out int renderedWidth)
     {
         var height = movingMode ? 74 : 42;
         const int padding = 12, minimumWidth = 510;
-        var dc = NativeMethods.CreateCompatibleDC(0);
-        if (dc == 0) throw new Win32Exception();
-        try
+        if (!NativeMethods.GetTextExtentPoint32(_dc, text, text.Length, out var textSize)) throw new Win32Exception();
+        renderedWidth = Math.Max(minimumWidth, textSize.cx + padding * 2);
+        EnsureBitmap(renderedWidth, height);
+        var left = rightEdge - renderedWidth;
+        var textX = renderedWidth - padding - textSize.cx;
+        unsafe
         {
-            var font = NativeMethods.CreateFont(22, 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
-            if (font == 0) throw new Win32Exception();
-            var previousFont = NativeMethods.SelectObject(dc, font);
-            try
+            var raw = new Span<uint>((void*)_bits, renderedWidth * height);
+            _canvas.AsSpan().Clear();
+            NativeMethods.SetBkMode(_dc, 1);
+            switch (theme)
             {
-                if (!NativeMethods.GetTextExtentPoint32(dc, text, text.Length, out var textSize)) throw new Win32Exception();
-                renderedWidth = Math.Max(minimumWidth, textSize.cx + padding * 2);
-                var left = rightEdge - renderedWidth;
-                var info = new NativeMethods.BITMAPINFO { bmiHeader = new() { biSize = 40, biWidth = renderedWidth, biHeight = -height, biPlanes = 1, biBitCount = 32, biCompression = 0 } };
-                var bitmap = NativeMethods.CreateDIBSection(dc, ref info, 0, out var bits, 0, 0);
-                if (bitmap == 0) throw new Win32Exception();
-                try
-                {
-                    var previousBitmap = NativeMethods.SelectObject(dc, bitmap);
-                    try
-                    {
-                        var pixelCount = renderedWidth * height;
-                        var canvas = new uint[pixelCount];
-                        var textX = renderedWidth - padding - textSize.cx;
-                        unsafe
-                        {
-                            var raw = new Span<uint>((void*)bits, pixelCount);
-                            NativeMethods.SetBkMode(dc, 1);
-                            switch (theme)
-                            {
-                                case OverlayTheme.OriginalWhite:
-                                    DrawTextLayer(dc, raw, canvas, textX, 10, text, 255, 255, 255, 255);
-                                    break;
-                                default:
-                                    DrawOutline(dc, raw, canvas, textX, 10, text, 20, 20, 20, 190);
-                                    DrawTextLayer(dc, raw, canvas, textX, 10, text, 255, 255, 255, 255);
-                                    break;
-                            }
-                            canvas.AsSpan().CopyTo(raw);
-                        }
-                        var destination = new NativeMethods.POINT { x = left, y = top };
-                        var source = new NativeMethods.POINT();
-                        var size = new NativeMethods.SIZE { cx = renderedWidth, cy = height };
-                        var blend = new NativeMethods.BLENDFUNCTION { BlendOp = 0, SourceConstantAlpha = 255, AlphaFormat = 1 };
-                        if (!NativeMethods.UpdateLayeredWindow(hwnd, 0, ref destination, ref size, dc, ref source, 0, ref blend, 2)) throw new Win32Exception();
-                    }
-                    finally { NativeMethods.SelectObject(dc, previousBitmap); }
-                }
-                finally { NativeMethods.DeleteObject(bitmap); }
-                return left;
+                case OverlayTheme.OriginalWhite:
+                    DrawTextLayer(_dc, raw, _canvas, textX, 10, text, 255, 255, 255, 255);
+                    break;
+                default:
+                    DrawOutline(_dc, raw, _canvas, textX, 10, text, 20, 20, 20, 190);
+                    DrawTextLayer(_dc, raw, _canvas, textX, 10, text, 255, 255, 255, 255);
+                    break;
             }
-            finally { NativeMethods.SelectObject(dc, previousFont); NativeMethods.DeleteObject(font); }
+            _canvas.AsSpan().CopyTo(raw);
         }
-        finally { NativeMethods.DeleteDC(dc); }
+        var destination = new NativeMethods.POINT { x = left, y = top };
+        var source = new NativeMethods.POINT();
+        var size = new NativeMethods.SIZE { cx = renderedWidth, cy = height };
+        var blend = new NativeMethods.BLENDFUNCTION { BlendOp = 0, SourceConstantAlpha = 255, AlphaFormat = 1 };
+        if (!NativeMethods.UpdateLayeredWindow(hwnd, 0, ref destination, ref size, _dc, ref source, 0, ref blend, NativeMethods.ULW_ALPHA)) throw new Win32Exception();
+        return left;
+    }
+
+    private void EnsureBitmap(int width, int height)
+    {
+        if (_bitmap != 0 && _bitmapWidth == width && _bitmapHeight == height) return;
+        if (_bitmap != 0) { NativeMethods.SelectObject(_dc, _previousBitmap); NativeMethods.DeleteObject(_bitmap); }
+        var info = new NativeMethods.BITMAPINFO { bmiHeader = new() { biSize = 40, biWidth = width, biHeight = -height, biPlanes = 1, biBitCount = 32, biCompression = 0 } };
+        _bitmap = NativeMethods.CreateDIBSection(_dc, ref info, 0, out _bits, 0, 0);
+        if (_bitmap == 0) throw new Win32Exception();
+        _previousBitmap = NativeMethods.SelectObject(_dc, _bitmap);
+        _bitmapWidth = width;
+        _bitmapHeight = height;
+        _canvas = new uint[width * height];
     }
 
     private static unsafe void DrawOutline(nint dc, Span<uint> raw, uint[] canvas, int x, int y, string text, byte r, byte g, byte b, byte opacity)
@@ -85,7 +91,7 @@ public sealed class LayeredRenderer : IDisposable
         }
     }
 
-    private static void Blend(uint[] canvas, int index, byte r, byte g, byte b, byte sourceAlpha)
+    internal static void Blend(uint[] canvas, int index, byte r, byte g, byte b, byte sourceAlpha)
     {
         var destination = canvas[index];
         var da = (byte)(destination >> 24);
@@ -96,5 +102,11 @@ public sealed class LayeredRenderer : IDisposable
         canvas[index] = (uint)(Channel(b, db, sourceAlpha, da, oa) | (Channel(g, dg, sourceAlpha, da, oa) << 8) | (Channel(r, dr, sourceAlpha, da, oa) << 16) | (oa << 24));
     }
 
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_bitmap != 0) { NativeMethods.SelectObject(_dc, _previousBitmap); NativeMethods.DeleteObject(_bitmap); _bitmap = 0; }
+        NativeMethods.SelectObject(_dc, _previousFont);
+        NativeMethods.DeleteObject(_font);
+        NativeMethods.DeleteDC(_dc);
+    }
 }

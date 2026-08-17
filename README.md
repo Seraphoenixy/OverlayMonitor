@@ -2,20 +2,23 @@
 
 轻量级 Windows 性能悬浮窗，定位为 NVIDIA 性能覆盖层的补充：显示 CPU/GPU 温度、实时上下行网速和内存占用率。
 
-项目使用 C#、.NET 8 与原生 Win32 API 实现，不依赖 WinForms、WPF、WinUI、MAUI、Electron 或 Avalonia。
+项目使用 C#、.NET 10 与原生 Win32 API 实现，不依赖 WinForms、WPF、WinUI、MAUI、Electron 或 Avalonia。
 
 ## 特性
 
-- 原生 `WS_POPUP` 分层窗口：置顶、不出现在任务栏或 Alt+Tab、不主动抢焦点。
-- `UpdateLayeredWindow`、32 位 DIB 与 GDI 逐像素透明文字绘制，无黑色底框。
+- 原生 `WS_POPUP` 分层窗口：置顶、不出现在任务栏或 Alt+Tab、不主动抢焦点；拦截 `WM_WINDOWPOSCHANGING` 实现置顶自愈，被其他程序挤出顶层带时自动恢复。
+- `UpdateLayeredWindow`、32 位 DIB 与 GDI 逐像素透明文字绘制，无黑色底框；DC、字体与 DIB 按尺寸缓存复用。
 - 正常状态默认点击穿透；移动模式提供更大的透明拖拽区域，并保存窗口位置。
-- CPU/GPU 温度和 GPU 占用率通过 `LibreHardwareMonitorLib 0.9.6` 获取；启动后缓存目标传感器。
-- CPU 总占用率通过 `GetSystemTimes` 计算；内存占用率通过 `GlobalMemoryStatusEx` 获取；网络速度通过 `NetworkInterface` 计数器计算。
+- 窗口位置在创建时和显示配置变化（`WM_DISPLAYCHANGE`）时钳制到最近显示器的工作区，避免断开外接屏后窗口飘出可视区域。
+- 单实例保护：重复启动时第二个实例立即退出。
+- CPU/GPU 温度和 GPU 占用率通过 `LibreHardwareMonitorLib 0.9.6` 获取；启动后缓存目标传感器，采样值经有效性过滤。
+- CPU 总占用率通过 `GetSystemTimes` 计算；内存占用率通过 `GlobalMemoryStatusEx` 获取；网络速度通过 `NetworkInterface` 计数器计算，合并 IPv4 与 IPv6 流量，活动网卡列表缓存并在网络变化时重建。
 - 后台周期采样，使用 `PostMessage` 通知 UI 线程；显示文字未变化时不重绘。
-- 托盘菜单支持显示/隐藏、移动模式、三种预设显示模式、开机自启动、配置重载和退出。
+- 托盘菜单支持显示/隐藏、移动模式、三种预设显示模式、刷新频率（500 毫秒 / 1 秒 / 2 秒 / 5 秒）、开机自启动、配置重载和退出。
 - `Alt + E` 全局快捷键切换悬浮窗显示/隐藏。
 - Explorer 重启后自动恢复托盘图标。
 - 支持 Per-Monitor V2 DPI Awareness。
+- 单元测试覆盖文本格式化、配置迁移、预设匹配与像素合成逻辑（`tests/OverlayMonitor.Tests`，xUnit）。
 
 ## 预设显示模式
 
@@ -37,10 +40,10 @@
 ## 系统要求
 
 - Windows 10/11
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)（构建时需要）
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)（构建时需要）
 - 用于 CPU 温度读取的管理员权限和 PawnIO 底层驱动（程序首次启动时会自动检测，须经用户确认后才会下载并安装）
 
-程序清单使用 `requireAdministrator`。LibreHardwareMonitor 0.9.6 读取 CPU 温度时使用 PawnIO 访问底层硬件：启动时会检查 PawnIO 是否已安装，缺失时会说明用途并请求用户确认；仅在用户同意后，才从 PawnIO 官方 GitHub 发布页下载 2.2.0 安装器，校验 SHA-256 后以静默方式安装。拒绝、下载、校验或安装失败不会阻止程序启动，但 CPU 温度可能显示为 `--`，详细原因会写入日志。某些安全软件、VBS/内存完整性、设备驱动或 BIOS 也可能阻止该访问。GPU 温度、网速和其他数据是否可用也取决于硬件与驱动是否暴露对应数据。
+程序清单使用 `requireAdministrator`。LibreHardwareMonitor 0.9.6 读取 CPU 温度时使用 PawnIO 访问底层硬件：启动时会检查 PawnIO 是否已安装，缺失时会说明用途并请求用户确认；仅在用户同意后，才从 PawnIO 官方 GitHub 发布页下载 2.2.0 安装器，校验 SHA-256 后以静默方式安装。下载安装在后台进行，悬浮窗会立即显示并渲染“正在安装 PawnIO 驱动...”占位文本，安装完成后自动开始采样。拒绝、下载、校验或安装失败不会阻止程序启动，但 CPU 温度可能显示为 `--`，详细原因会写入日志。某些安全软件、VBS/内存完整性、设备驱动或 BIOS 也可能阻止该访问。GPU 温度、网速和其他数据是否可用也取决于硬件与驱动是否暴露对应数据。
 
 ## 构建与运行
 
@@ -49,13 +52,14 @@
 ```powershell
 dotnet restore
 dotnet build -c Release
+dotnet test OverlayMonitor.sln -c Release
 dotnet run --project .\src\OverlayMonitor\OverlayMonitor.csproj -c Release
 ```
 
 构建输出：
 
 ```text
-src\OverlayMonitor\bin\Release\net8.0-windows\
+src\OverlayMonitor\bin\Release\net10.0-windows\
 ```
 
 发布 x64 版本：
@@ -70,9 +74,9 @@ dotnet publish .\src\OverlayMonitor\OverlayMonitor.csproj -c Release -r win-x64 
 
 1. 右键系统托盘中的 OverlayMonitor 图标打开菜单。
 2. “移动模式”勾选后可拖动悬浮窗；再次点击该项退出移动模式并恢复点击穿透。
-3. 菜单中的勾选状态会指示当前可见性、移动模式、预设显示模式和开机自启动状态。
+3. 菜单中的勾选状态会指示当前可见性、移动模式、预设显示模式、刷新频率和开机自启动状态。
 4. 按 `Alt + E` 可快速显示或隐藏窗口。若该组合键已被其他程序注册，失败原因会写入日志。
-5. “开机自启动”会创建或删除名为 `OverlayMonitor` 的 Windows 计划任务：当前用户登录时以最高权限在交互会话运行，以避免登录时再次弹出 UAC。
+5. “开机自启动”会创建或删除名为 `OverlayMonitor` 的 Windows 计划任务：当前用户登录时以最高权限在交互会话运行，以避免登录时再次弹出 UAC。任务定义取消了电池供电启动限制与运行时长限制，包含启动失败自动重试；程序每次启动时会按当前可执行文件路径刷新任务定义，便携包移动位置后无需手动重建。
 
 ## 配置与日志
 
@@ -85,7 +89,7 @@ OverlayMonitor\overlay-monitor.log
 
 `config.json` 保存窗口位置、可见状态、采样间隔、普通指标开关和排序。RAM 占用率由预设模式控制：除温度模式外均显示。
 
-日志在每次启动时覆盖，用于记录传感器扫描、热键注册、配置写入和运行异常。CPU 温度显示为 `--` 时，优先检查日志中“CPU 温度传感器”和“已选择 CPU 温度传感器”条目。
+日志以追加方式写入，超过 512 KB 时轮转为 `overlay-monitor.log.old`，用于记录传感器扫描、热键注册、配置写入和运行异常。CPU 温度显示为 `--` 时，优先检查日志中“CPU 温度传感器”和“已选择 CPU 温度传感器”条目。
 
 ## 项目结构
 
@@ -93,11 +97,13 @@ OverlayMonitor\overlay-monitor.log
 src/OverlayMonitor/
 ├── Configuration/  配置、日志、自启动计划任务
 ├── Models/         配置与监控数据模型
-├── Monitoring/     LHM、CPU、内存与网络采样
+├── Monitoring/     LHM、CPU、内存与网络采样，PawnIO 驱动引导
 ├── Rendering/      GDI/DIB 分层窗口渲染
 ├── Tray/           托盘图标和菜单
 ├── Window/         Win32 窗口与 P/Invoke
 └── Assets/         应用与托盘图标
+
+tests/OverlayMonitor.Tests/  单元测试（xUnit）
 ```
 
 ## 不包含的功能
