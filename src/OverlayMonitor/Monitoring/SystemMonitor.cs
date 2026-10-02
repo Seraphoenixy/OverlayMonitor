@@ -8,6 +8,13 @@ using OverlayMonitor.Models;
 namespace OverlayMonitor.Monitoring;
 public sealed class SystemMonitor : IDisposable
 {
+    private static readonly string[] NonPhysicalInterfaceMarkers =
+    [
+        "virtual", "hyper-v", "vmware", "virtualbox", "wintun", "tap-windows", "tap adapter",
+        "tun", "tailscale", "zerotier", "wireguard", "openvpn", "cloudflare warp", "hamachi",
+        "radmin vpn", "clash", "sing-box", "v2ray", "npcap", "wan miniport", "wfp", "qos packet scheduler",
+        "network monitor", "ndis filter", "filter driver", "lightweight filter", "native wifi filter"
+    ];
     private readonly Computer _computer = new() { IsCpuEnabled = true, IsGpuEnabled = true };
     private readonly UpdateVisitor _visitor = new();
     private ISensor? _cpuTemp, _cpuLoad, _gpuTemp, _gpuLoad;
@@ -64,10 +71,28 @@ public sealed class SystemMonitor : IDisposable
     private static float? ValidTemp(float? value) => value is > 0 and < 150 ? value : null;
     private static float? ValidLoad(float? value) => value is >= 0 and <= 100 ? value : null;
     private static ulong Delta(ulong current, ulong previous) => current >= previous ? current - previous : 0;
+    private static bool IsPhysicalInterface(NetworkInterface networkInterface)
+    {
+        if (networkInterface.NetworkInterfaceType is not (
+            NetworkInterfaceType.Ethernet or NetworkInterfaceType.GigabitEthernet or
+            NetworkInterfaceType.FastEthernetFx or NetworkInterfaceType.FastEthernetT or
+            NetworkInterfaceType.Wireless80211 or NetworkInterfaceType.Wman or
+            NetworkInterfaceType.Wwanpp or NetworkInterfaceType.Wwanpp2))
+            return false;
+
+        var identity = $"{networkInterface.Name} {networkInterface.Description}";
+        return !NonPhysicalInterfaceMarkers.Any(marker => identity.Contains(marker, StringComparison.OrdinalIgnoreCase));
+    }
     private void ReadNetwork(out ulong rx, out ulong tx)
     {
         rx = tx = 0;
-        _interfaces ??= NetworkInterface.GetAllNetworkInterfaces().Where(n => n.OperationalStatus == OperationalStatus.Up && n.NetworkInterfaceType != NetworkInterfaceType.Loopback).ToList();
+        if (_interfaces is null)
+        {
+            _interfaces = NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == OperationalStatus.Up && IsPhysicalInterface(n))
+                .ToList();
+            AppLog.Info($"网络统计网卡：{(_interfaces.Count == 0 ? "未发现" : string.Join("；", _interfaces.Select(n => $"{n.Name}/{n.Description}")))}");
+        }
         foreach (var n in _interfaces)
         {
             try { var s = n.GetIPStatistics(); rx += (ulong)Math.Max(s.BytesReceived, 0); tx += (ulong)Math.Max(s.BytesSent, 0); }

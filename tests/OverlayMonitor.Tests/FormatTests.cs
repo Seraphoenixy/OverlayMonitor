@@ -15,39 +15,50 @@ public class FormatTests
         => new(cpuTemp, gpuTemp, cpuLoad, gpuLoad, memoryLoad, downloadBps, uploadBps);
 
     [Fact]
-    public void NullTemperatureShowsDashes() => Assert.Equal("CPU --", Program.Format(Config(false, ("cpuTemp", 0)), Snapshot()));
+    public void NullTemperatureShowsDashes() => Assert.Equal("CPU --", Program.Format(Config(false, ("cpuTemp", 0)), Snapshot()).TrimEnd());
 
     [Fact]
-    public void TemperatureRoundsToInteger() => Assert.Equal("CPU 46°C", Program.Format(Config(false, ("cpuTemp", 0)), Snapshot(cpuTemp: 45.6f)));
+    public void TemperatureRoundsToInteger() => Assert.Equal("CPU 46°C", Program.Format(Config(false, ("cpuTemp", 0)), Snapshot(cpuTemp: 45.6f)).TrimEnd());
 
     [Fact]
-    public void LoadsShowPercentage() => Assert.Equal("CPU 37%  |  GPU 82%", Program.Format(Config(false, ("cpuLoad", 0), ("gpuLoad", 1)), Snapshot(cpuLoad: 37f, gpuLoad: 82f)));
+    public void TemperatureFieldsKeepFixedWidth()
+    {
+        var low = Program.Format(Config(false, ("cpuTemp", 0)), Snapshot(cpuTemp: 1f));
+        var high = Program.Format(Config(false, ("cpuTemp", 0)), Snapshot(cpuTemp: 99f));
+        Assert.Contains("CPU 1°C", low);
+        Assert.Contains("CPU 99°C", high);
+        Assert.StartsWith("CPU ", low);
+        Assert.StartsWith("CPU ", high);
+    }
+
+    [Fact]
+    public void LoadsShowPercentage() => Assert.Equal("CPU 37%   |  GPU 82%", Program.Format(Config(false, ("cpuLoad", 0), ("gpuLoad", 1)), Snapshot(cpuLoad: 37f, gpuLoad: 82f)).TrimEnd());
 
     [Theory]
     [InlineData(500, "↓ 500 B/s")]
     [InlineData(2048, "↓ 2 KB/s")]
-    public void DownloadSpeedUsesLowerUnits(double bytes, string expected) => Assert.Equal(expected, Program.Format(Config(false, ("download", 0)), Snapshot(downloadBps: bytes)));
+    public void DownloadSpeedUsesLowerUnits(double bytes, string expected) => Assert.Equal(expected, Program.Format(Config(false, ("download", 0)), Snapshot(downloadBps: bytes)).TrimEnd());
 
     [Fact]
-    public void DownloadSpeedUsesMegabytes() => Assert.Contains("MB/s", Program.Format(Config(false, ("download", 0)), Snapshot(downloadBps: 3 * 1024 * 1024)));
+    public void DownloadSpeedUsesMegabytes() => Assert.Contains("MB/s", Program.Format(Config(false, ("download", 0)), Snapshot(downloadBps: 3 * 1024 * 1024)).TrimEnd());
 
     [Fact]
-    public void UploadSpeedUsesArrow() => Assert.Equal("↑ 1 KB/s", Program.Format(Config(false, ("upload", 0)), Snapshot(uploadBps: 1024)));
+    public void UploadSpeedUsesArrow() => Assert.Equal("↑ 1 KB/s", Program.Format(Config(false, ("upload", 0)), Snapshot(uploadBps: 1024)).TrimEnd());
 
     [Fact]
-    public void MemoryLoadAppendedWhenEnabled() => Assert.Equal("CPU --  |  RAM 42%", Program.Format(Config(true, ("cpuTemp", 0)), Snapshot(memoryLoad: 42)));
+    public void MemoryLoadAppendedWhenEnabled() => Assert.Equal("CPU --    |  RAM 42%", Program.Format(Config(true, ("cpuTemp", 0)), Snapshot(memoryLoad: 42)).TrimEnd());
 
     [Fact]
-    public void MemoryLoadOmittedWhenDisabled() => Assert.Equal("CPU --", Program.Format(Config(false, ("cpuTemp", 0)), Snapshot(memoryLoad: 42)));
+    public void MemoryLoadOmittedWhenDisabled() => Assert.Equal("CPU --", Program.Format(Config(false, ("cpuTemp", 0)), Snapshot(memoryLoad: 42)).TrimEnd());
 
     [Fact]
-    public void MetricsOrderedByOrderField() => Assert.Equal("GPU --  |  CPU --", Program.Format(Config(false, ("cpuTemp", 1), ("gpuTemp", 0)), Snapshot()));
+    public void MetricsOrderedByOrderField() => Assert.Equal("GPU --    |  CPU --", Program.Format(Config(false, ("cpuTemp", 1), ("gpuTemp", 0)), Snapshot()).TrimEnd());
 
     [Fact]
     public void DisabledMetricsSkipped()
     {
         var config = Config(false, ("cpuTemp", 0), ("gpuTemp", 1));
         config.Metrics[1].Enabled = false;
-        Assert.Equal("CPU --", Program.Format(config, Snapshot()));
+        Assert.Equal("CPU --", Program.Format(config, Snapshot()).TrimEnd());
     }
 }

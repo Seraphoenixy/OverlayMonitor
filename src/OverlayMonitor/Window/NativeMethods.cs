@@ -3,6 +3,21 @@ using System.Runtime.InteropServices;
 namespace OverlayMonitor.Window;
 internal static class NativeMethods
 {
+    internal const uint WM_TIMER = 0x113, WM_SETTINGCHANGE = 0x1A, WM_DPICHANGED = 0x2E0;
+    internal const uint EVENT_SYSTEM_FOREGROUND = 3, EVENT_OBJECT_SHOW = 0x8002, EVENT_OBJECT_REORDER = 0x8004;
+    internal const uint WINEVENT_SKIPOWNPROCESS = 2, GW_HWNDPREV = 3;
+    internal const uint SWP_HIDEWINDOW = 0x80;
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void WinEventProc(nint hook, uint evt, nint hwnd, int objectId, int childId, uint thread, uint time);
+    [DllImport("user32.dll")] internal static extern nint SetWinEventHook(uint min, uint max, nint module, WinEventProc callback, uint process, uint thread, uint flags);
+    [DllImport("user32.dll")] internal static extern bool UnhookWinEvent(nint hook);
+    [DllImport("user32.dll", SetLastError = true)] internal static extern nuint SetTimer(nint hwnd, nuint id, uint interval, nint callback);
+    [DllImport("user32.dll")] internal static extern bool KillTimer(nint hwnd, nuint id);
+    [DllImport("user32.dll")] internal static extern bool IsWindowVisible(nint hwnd);
+    [DllImport("user32.dll")] internal static extern bool IsIconic(nint hwnd);
+    [DllImport("user32.dll")] internal static extern nint GetWindow(nint hwnd, uint command);
+    [DllImport("user32.dll")] internal static extern nint GetAncestor(nint hwnd, uint flags);
+    [DllImport("user32.dll")] internal static extern bool GetWindowRect(nint hwnd, out RECT rect);
+    [DllImport("dwmapi.dll")] internal static extern int DwmGetWindowAttribute(nint hwnd, uint attribute, out int value, uint size);
     internal const uint WS_POPUP = 0x80000000, WS_EX_TOPMOST = 0x00000008, WS_EX_TOOLWINDOW = 0x00000080, WS_EX_NOACTIVATE = 0x08000000, WS_EX_LAYERED = 0x00080000, WS_EX_TRANSPARENT = 0x00000020;
     internal const int GWL_EXSTYLE = -20, SW_SHOWNOACTIVATE = 4, SW_HIDE = 0, HWND_TOPMOST = -1, SWP_NOMOVE = 2, SWP_NOSIZE = 1, SWP_NOACTIVATE = 16, SWP_SHOWWINDOW = 64, SWP_NOZORDER = 4;
     internal const uint WM_NULL = 0, WM_DESTROY = 2, WM_CLOSE = 16, WM_WINDOWPOSCHANGING = 70, WM_DISPLAYCHANGE = 0x7E, WM_NCHITTEST = 132, WM_LBUTTONDOWN = 513, WM_MOUSEMOVE = 512, WM_LBUTTONUP = 514, WM_RBUTTONUP = 0x205, WM_CAPTURECHANGED = 533, WM_HOTKEY = 786, WM_APP = 0x8000, WM_OVERLAY_CHANGED = WM_APP + 1, WM_TRAY = WM_APP + 2;

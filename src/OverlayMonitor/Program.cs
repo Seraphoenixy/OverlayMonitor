@@ -49,15 +49,38 @@ internal static class Program
     }
     internal static string Format(OverlayConfig config, MonitorSnapshot s)
     {
+        const int standardLabelWidth = 3;
+        const int arrowLabelWidth = 1;
+        const int temperatureValueWidth = 4;
+        const int loadValueWidth = 4;
+        const int speedValueWidth = 10;
+        const int memoryValueWidth = 4;
+
         var parts = config.Metrics.Where(m => m.Enabled).OrderBy(m => m.Order).Select(m => m.Id switch
         {
-            "cpuTemp" => $"CPU {Temperature(s.CpuTemperature)}", "gpuTemp" => $"GPU {Temperature(s.GpuTemperature)}",
-            "cpuLoad" => $"CPU {s.CpuLoad:0}%", "gpuLoad" => $"GPU {s.GpuLoad:0}%",
-            "download" => $"↓ {Speed(s.DownloadBps)}", "upload" => $"↑ {Speed(s.UploadBps)}", _ => ""
+            "cpuTemp" => FixedField("CPU", Temperature(s.CpuTemperature), standardLabelWidth, temperatureValueWidth),
+            "gpuTemp" => FixedField("GPU", Temperature(s.GpuTemperature), standardLabelWidth, temperatureValueWidth),
+            "cpuLoad" => FixedField("CPU", Load(s.CpuLoad), standardLabelWidth, loadValueWidth),
+            "gpuLoad" => FixedField("GPU", Load(s.GpuLoad), standardLabelWidth, loadValueWidth),
+            "download" => FixedField("↓", Speed(s.DownloadBps), arrowLabelWidth, speedValueWidth),
+            "upload" => FixedField("↑", Speed(s.UploadBps), arrowLabelWidth, speedValueWidth),
+            _ => ""
         }).Where(x => x.Length > 0);
         var result = string.Join("  |  ", parts);
-        return config.ShowMemoryLoad ? $"{result}  |  RAM {s.MemoryLoad}%" : result;
+        var memory = config.ShowMemoryLoad ? FixedField("RAM", MemoryLoad(s.MemoryLoad), standardLabelWidth, memoryValueWidth) : "";
+        var final = config.ShowMemoryLoad ? $"{result}  |  {memory}" : result;
+        return final.TrimEnd();
     }
+
+    private static string FixedField(string label, string value, int labelWidth, int valueWidth)
+    {
+        var paddedLabel = label.Length >= labelWidth ? label : label.PadRight(labelWidth, ' ');
+        var paddedValue = value.Length >= valueWidth ? value : value.PadRight(valueWidth, ' ');
+        return $"{paddedLabel}{(label.Length == 1 ? " " : " ")}{paddedValue}";
+    }
+
     private static string Temperature(float? value) => value is null ? "--" : $"{value:0}°C";
+    private static string Load(float? value) => value is null ? "--" : $"{value:0}%";
+    private static string MemoryLoad(uint value) => $"{value}%";
     private static string Speed(double bytes) => bytes >= 1024 * 1024 ? $"{bytes / 1024 / 1024:0.0} MB/s" : bytes >= 1024 ? $"{bytes / 1024:0} KB/s" : $"{bytes:0} B/s";
 }

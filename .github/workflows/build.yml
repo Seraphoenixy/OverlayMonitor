@@ -46,7 +46,6 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
-          cache: true
 
       - name: Build
         run: dotnet build OverlayMonitor.sln -c Release
@@ -74,7 +73,6 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
-          cache: true
 
       - name: Restore
         run: dotnet restore OverlayMonitor.sln -r ${{ matrix.rid }}

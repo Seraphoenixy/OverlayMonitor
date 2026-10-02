@@ -23,7 +23,7 @@ public sealed class LayeredRenderer : IDisposable
         EnsureFont(22, 400);
     }
 
-    public int Draw(nint hwnd, string text, int rightEdge, int top, bool movingMode, OverlayTheme theme, out int renderedWidth)
+    internal void Draw(nint hwnd, string text, bool movingMode, OverlayTheme theme, Func<int, int, NativeMethods.POINT> place, out int renderedWidth)
     {
         // 2560 × 1600 is the visual baseline.  Scale by monitor height so the
         // overlay stays legible on smaller panels without becoming oversized on 4K.
@@ -41,7 +41,6 @@ public sealed class LayeredRenderer : IDisposable
         if (!NativeMethods.GetTextExtentPoint32(_dc, text, text.Length, out var textSize)) throw new Win32Exception();
         renderedWidth = Math.Max(minimumWidth, textSize.cx + padding * 2);
         EnsureBitmap(renderedWidth, height);
-        var left = rightEdge - renderedWidth;
         var textX = renderedWidth - padding - textSize.cx;
         unsafe
         {
@@ -60,12 +59,11 @@ public sealed class LayeredRenderer : IDisposable
             }
             _canvas.AsSpan().CopyTo(raw);
         }
-        var destination = new NativeMethods.POINT { x = left, y = top };
+        var destination = place(renderedWidth, height);
         var source = new NativeMethods.POINT();
         var size = new NativeMethods.SIZE { cx = renderedWidth, cy = height };
         var blend = new NativeMethods.BLENDFUNCTION { BlendOp = 0, SourceConstantAlpha = 255, AlphaFormat = 1 };
         if (!NativeMethods.UpdateLayeredWindow(hwnd, 0, ref destination, ref size, _dc, ref source, 0, ref blend, NativeMethods.ULW_ALPHA)) throw new Win32Exception();
-        return left;
     }
 
     private void EnsureFont(int height, int weight)
@@ -83,10 +81,12 @@ public sealed class LayeredRenderer : IDisposable
     private void EnsureBitmap(int width, int height)
     {
         if (_bitmap != 0 && _bitmapWidth == width && _bitmapHeight == height) return;
-        if (_bitmap != 0) { NativeMethods.SelectObject(_dc, _previousBitmap); NativeMethods.DeleteObject(_bitmap); }
         var info = new NativeMethods.BITMAPINFO { bmiHeader = new() { biSize = 40, biWidth = width, biHeight = -height, biPlanes = 1, biBitCount = 32, biCompression = 0 } };
-        _bitmap = NativeMethods.CreateDIBSection(_dc, ref info, 0, out _bits, 0, 0);
-        if (_bitmap == 0) throw new Win32Exception();
+        var bitmap = NativeMethods.CreateDIBSection(_dc, ref info, 0, out var bits, 0, 0);
+        if (bitmap == 0) throw new Win32Exception();
+        if (_bitmap != 0) { NativeMethods.SelectObject(_dc, _previousBitmap); NativeMethods.DeleteObject(_bitmap); }
+        _bitmap = bitmap;
+        _bits = bits;
         _previousBitmap = NativeMethods.SelectObject(_dc, _bitmap);
         _bitmapWidth = width;
         _bitmapHeight = height;
