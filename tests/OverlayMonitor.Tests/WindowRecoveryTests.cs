@@ -23,7 +23,8 @@ public sealed class WindowRecoveryTests
             {
                 var config = new OverlayConfig { X = 100, Y = 100, Visible = false };
                 using var overlay = new OverlayWindow(new ConfigService(), config);
-                overlay.Create();
+                // Window recovery does not require Explorer's notification area (unavailable on CI).
+                overlay.Create(createTrayIcon: false);
                 var command = typeof(OverlayWindow).GetMethod("OnCommand", BindingFlags.NonPublic | BindingFlags.Instance)!;
                 command.Invoke(overlay, [2u]); // Changing style while hidden must not show it.
                 Assert.False(NativeMethods.IsWindowVisible(overlay.Handle));

@@ -38,7 +38,9 @@ public sealed class OverlayWindow : IDisposable
 
     public OverlayWindow(ConfigService service, OverlayConfig config) { _configService = service; _config = config; _proc = WndProc; _eventProc = OnWindowEvent; }
 
-    public void Create()
+    public void Create() => Create(createTrayIcon: true);
+
+    internal void Create(bool createTrayIcon)
     {
         var instance = Marshal.GetHINSTANCE(typeof(OverlayWindow).Module);
         var wc = new NativeMethods.WNDCLASSEX { cbSize = (uint)Marshal.SizeOf<NativeMethods.WNDCLASSEX>(), lpfnWndProc = Marshal.GetFunctionPointerForDelegate(_proc), hInstance = instance, lpszClassName = ClassName };
@@ -46,9 +48,12 @@ public sealed class OverlayWindow : IDisposable
         ClampToWorkArea();
         _hwnd = NativeMethods.CreateWindowEx(Style(), ClassName, "OverlayMonitor", NativeMethods.WS_POPUP, _config.X, _config.Y, 510, 42, 0, 0, instance, 0);
         if (_hwnd == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
-        _tray = new TrayIcon(_hwnd);
-        _tray.Command += OnCommand;
-        _tray.StateProvider = GetTrayState;
+        if (createTrayIcon)
+        {
+            _tray = new TrayIcon(_hwnd);
+            _tray.Command += OnCommand;
+            _tray.StateProvider = GetTrayState;
+        }
         _hotKeyRegistered = NativeMethods.RegisterHotKey(_hwnd, ToggleHotKeyId, 1, 0x45);
         if (!_hotKeyRegistered) AppLog.Error("Alt+E 全局热键注册失败。", new Win32Exception(Marshal.GetLastWin32Error()));
         _text = "正在初始化监控...";

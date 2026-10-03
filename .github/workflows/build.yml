@@ -1,8 +1,10 @@
-name: Build and Release
+name: Test, Build and Release
 
 on:
   push:
+    branches: ['**']
     tags: ['v*']
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -11,6 +13,7 @@ permissions:
 jobs:
   metadata:
     name: Determine release metadata
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.metadata.outputs.version }}
@@ -56,6 +59,7 @@ jobs:
   build:
     name: Publish (${{ matrix.rid }})
     needs: [metadata, verify]
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
     env:
       VERSION: ${{ needs.metadata.outputs.version }}
