@@ -11,32 +11,6 @@ permissions:
   contents: read
 
 jobs:
-  metadata:
-    name: Determine release metadata
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.metadata.outputs.version }}
-      short_hash: ${{ steps.metadata.outputs.short_hash }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Determine version and commit
-        id: metadata
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" == v* ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          else
-            VERSION="$(date +'%Y.%-m.%-d')"
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "short_hash=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
-
   verify:
     name: Verify
     runs-on: windows-latest
@@ -57,13 +31,10 @@ jobs:
         run: dotnet test OverlayMonitor.sln -c Release --no-build
 
   build:
-    name: Publish (${{ matrix.rid }})
-    needs: [metadata, verify]
+    name: Build installer (${{ matrix.rid }})
+    needs: verify
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
-    env:
-      VERSION: ${{ needs.metadata.outputs.version }}
-      SHORT_HASH: ${{ needs.metadata.outputs.short_hash }}
     strategy:
       fail-fast: false
       matrix:
@@ -72,6 +43,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Determine version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME.StartsWith('v')) {
+            $version = $env:GITHUB_REF_NAME.Substring(1)
+          } else {
+            $version = (Get-Date -Format 'yyyy.MM.dd')
+          }
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v5
@@ -82,6 +63,7 @@ jobs:
         run: dotnet restore OverlayMonitor.sln -r ${{ matrix.rid }}
 
       - name: Publish self-contained package
+        shell: pwsh
         run: >
           dotnet publish src/OverlayMonitor/OverlayMonitor.csproj
           -c Release
@@ -90,19 +72,58 @@ jobs:
           --no-restore
           -p:Version=$env:VERSION
           -o publish/${{ matrix.rid }}
-        shell: pwsh
 
-      - name: Stage package
+      - name: Build installer
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force release | Out-Null
-          Compress-Archive -Path "publish/${{ matrix.rid }}/*" -DestinationPath "release/OverlayMonitor-windows-${{ matrix.rid }}-v$env:VERSION-$env:SHORT_HASH.zip"
+          $rid = '${{ matrix.rid }}'
+          $architecture = if ($rid -eq 'win-arm64') { 'arm64' } else { 'x64compatible' }
+          $sourceDir = (Resolve-Path "publish/$rid").Path
+          $outputDir = Join-Path $PWD 'installer-output'
+          $iconPath = (Resolve-Path 'src/OverlayMonitor/Assets/OverlayMonitor.ico').Path
+          $languageDir = Join-Path $PWD 'installer-languages'
+          $chineseMessagesFile = Join-Path $languageDir 'ChineseSimplified.isl'
+          New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+          New-Item -ItemType Directory -Path $languageDir -Force | Out-Null
 
-      - name: Upload package artifact
+          # ChineseSimplified.isl is an optional Inno Setup translation and is not present on
+          # every windows-latest image. Pin the Inno Setup 6.4-compatible source and verify it.
+          Invoke-WebRequest `
+            -Uri 'https://raw.githubusercontent.com/jrsoftware/issrc/is-6_4_3/Files/Languages/Unofficial/ChineseSimplified.isl' `
+            -OutFile $chineseMessagesFile `
+            -MaximumRetryCount 3 `
+            -RetryIntervalSec 2
+          $expectedLanguageHash = 'DCECA9FEA16EA057A64012AC8744A1ECA7DC6CE3187D0C8991ACCBB539F2D4A0'
+          $actualLanguageHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $chineseMessagesFile).Hash
+          if ($actualLanguageHash -ne $expectedLanguageHash) {
+            throw "ChineseSimplified.isl checksum mismatch: $actualLanguageHash"
+          }
+
+          $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) {
+            $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          }
+          if (-not (Test-Path -LiteralPath $iscc)) {
+            throw "Inno Setup compiler not found: $iscc"
+          }
+
+          & $iscc installer/OverlayMonitor.iss `
+            "/DAppVersion=$env:VERSION" `
+            "/DAppRid=$rid" `
+            "/DAppArchitecture=$architecture" `
+            "/DSourceDir=$sourceDir" `
+            "/DOutputDir=$outputDir" `
+            "/DIconPath=$iconPath" `
+            "/DChineseMessagesFile=$chineseMessagesFile"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v6
         with:
-          name: OverlayMonitor-windows-${{ matrix.rid }}
-          path: release/OverlayMonitor-windows-*.zip
+          name: OverlayMonitor-Installer-${{ matrix.rid }}
+          path: installer-output/*.exe
           if-no-files-found: error
 
   release:
@@ -114,13 +135,15 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout
+      - name: Checkout release tag
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Download release assets
         uses: actions/download-artifact@v6
         with:
-          pattern: OverlayMonitor-*
+          pattern: OverlayMonitor-Installer-*
           path: release-assets
           merge-multiple: true
 
@@ -129,7 +152,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG_NAME" release-assets/* \
+          gh release create "$TAG_NAME" release-assets/*.exe \
             --title "OverlayMonitor $TAG_NAME" \
             --generate-notes \
             --draft

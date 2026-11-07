@@ -31,3 +31,7 @@ publish/
 *.bak
 Thumbs.db
 Desktop.ini
+
+# Installer build output
+installer-output/
+installer-languages/
